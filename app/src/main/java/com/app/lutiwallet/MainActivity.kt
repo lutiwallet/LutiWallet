@@ -133,15 +133,6 @@ fun WalletApp(viewModel: WalletViewModel) {
             sessionLocked.value = false
         }
     }
-    var mostrandoRegistro by remember { mutableStateOf(false) }
-    var mostrarConfig by remember { mutableStateOf(false) }
-    var walletActualIdx by remember { mutableStateOf(prefsSeguras.getInt("current_idx", 0)) }
-    var idiomaSeleccionado by remember { mutableStateOf(prefsSeguras.getString("idioma_pref", "Español") ?: "Español") }
-    var fraseRecienGenerada by remember { mutableStateOf<String?>(null) }
-    val updateUrl by viewModel.updateUrl.collectAsStateWithLifecycle()
-
-    val textos = TEXTOS_IDIOMAS[idiomaSeleccionado] ?: TEXTOS_IDIOMAS["Español"]!!
-
     val listaFrases = remember {
         mutableStateListOf<String>().apply {
             val guardadas = prefsSeguras.getStringSet("lista_frases", emptySet()) ?: emptySet()
@@ -151,13 +142,20 @@ fun WalletApp(viewModel: WalletViewModel) {
         }
     }
 
+    var mostrandoRegistro by remember { mutableStateOf(listaFrases.isEmpty()) }
+    var mostrarConfig by remember { mutableStateOf(false) }
+    var walletActualIdx by remember { mutableStateOf(prefsSeguras.getInt("current_idx", 0)) }
+    var idiomaSeleccionado by remember { mutableStateOf(prefsSeguras.getString("idioma_pref", "Español") ?: "Español") }
+    var fraseRecienGenerada by remember { mutableStateOf<String?>(null) }
+    val updateUrl by viewModel.updateUrl.collectAsStateWithLifecycle()
+
+    val textos = TEXTOS_IDIOMAS[idiomaSeleccionado] ?: TEXTOS_IDIOMAS["Español"]!!
+
     val passGuardada = remember { prefsSeguras.getString("app_password", "") ?: "" }
     val fraseActiva = if (listaFrases.isNotEmpty() && walletActualIdx < listaFrases.size) listaFrases[walletActualIdx] else ""
     val direccionActiva = remember(fraseActiva) {
         if (fraseActiva.isEmpty()) "No creada" else SolanaUtils.generateAddressFromMnemonic(fraseActiva)
     }
-
-    mostrandoRegistro = listaFrases.isEmpty()
 
     when {
 
