@@ -240,9 +240,6 @@ class WalletViewModel : ViewModel() {
 
             if (dirSnapshot != direccionActual) return
 
-            Log.d("WalletViewModel", "Mints buscados: $mints")
-            Log.d("WalletViewModel", "Metadata recibida: $metadata")
-
             val precioSol = precios[solMint] ?: _precioUsd.value
             if (precioSol > 0.0) _precioUsd.value = precioSol
 

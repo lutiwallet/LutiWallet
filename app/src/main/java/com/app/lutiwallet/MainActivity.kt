@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,8 +44,12 @@ import com.app.lutiwallet.viewmodel.WalletViewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.messaging.FirebaseMessaging
+import android.view.WindowManager
 import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.Token
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.app.lutiwallet.pantallas.StakingScreen
 import com.app.lutiwallet.pantallas.TokensScreen
 
@@ -54,13 +59,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser == null) {
             auth.signInAnonymously()
-                .addOnSuccessListener { android.util.Log.d("LutiAuth", "Sesión iniciada: ${it.user?.uid}") }
-                .addOnFailureListener { e -> android.util.Log.e("LutiAuth", "Fallo: ${e.message}") }
         }
 
         val permisos = mutableListOf(android.Manifest.permission.CAMERA).apply {
@@ -102,6 +106,33 @@ fun WalletApp(viewModel: WalletViewModel) {
 
     var isAuthenticated by remember { mutableStateOf(false) }
     var creandoPass by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val sessionLocked = remember { mutableStateOf(false) }
+    var pausedAt by remember { mutableStateOf(0L) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> pausedAt = System.currentTimeMillis()
+                Lifecycle.Event.ON_RESUME -> {
+                    if (pausedAt > 0L && System.currentTimeMillis() - pausedAt > 5 * 60 * 1000L) {
+                        sessionLocked.value = true
+                    }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(sessionLocked.value) {
+        if (sessionLocked.value) {
+            isAuthenticated = false
+            sessionLocked.value = false
+        }
+    }
     var mostrandoRegistro by remember { mutableStateOf(false) }
     var mostrarConfig by remember { mutableStateOf(false) }
     var walletActualIdx by remember { mutableStateOf(prefsSeguras.getInt("current_idx", 0)) }

@@ -48,7 +48,7 @@ import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-private const val FCM_SECRET = "8fa9WW294jcueu1kkl4GG"
+private const val FCM_SECRET = "Agu38duebncuJkNBVww"
 private const val FCM_ENDPOINT = "https://lutiwallet.com/fcm_send.php"
 
 @Keep
@@ -255,9 +255,8 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                     .getReference("tokens")
                     .child(direccionPropia)
                     .setValue(token)
-                Log.d("LutiChat", "FCM token registrado para $direccionPropia")
             } else {
-                Log.e("LutiChat", "Fallo al obtener FCM token: ${task.exception?.message}")
+                Log.e("LutiChat", "Fallo al registrar token FCM")
             }
         }
     }
