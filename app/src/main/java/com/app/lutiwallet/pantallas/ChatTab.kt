@@ -319,28 +319,37 @@ fun PantallaPrincipalChat(direccionPropia: String) {
     }
 
     DisposableEffect(destinoInput, direccionPropia) {
-        if (destinoInput.isEmpty()) return@DisposableEffect onDispose {}
+        var activeListener: ValueEventListener? = null
+        var activePath: String? = null
 
-        mensajesSinLeer.remove(destinoInput)
-        sharedPrefs.edit().putLong("ultimo_visto_$destinoInput", System.currentTimeMillis()).apply()
+        if (destinoInput.isNotEmpty()) {
+            mensajesSinLeer.remove(destinoInput)
+            sharedPrefs.edit().putLong("ultimo_visto_$destinoInput", System.currentTimeMillis()).apply()
 
-        val path = if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados"
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                todosLosMensajes.clear()
-                snapshot.children.forEach { child ->
-                    val m = child.getValue(Mensaje::class.java)
-                    if (m != null) {
-                        if (path.startsWith("GLOBAL_") || m.receptor == direccionPropia || m.emisor == direccionPropia) {
-                            todosLosMensajes.add(m)
+            val path = if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados"
+            activePath = path
+
+            activeListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    todosLosMensajes.clear()
+                    snapshot.children.forEach { child ->
+                        val m = child.getValue(Mensaje::class.java)
+                        if (m != null) {
+                            if (path.startsWith("GLOBAL_") || m.receptor == direccionPropia || m.emisor == direccionPropia) {
+                                todosLosMensajes.add(m)
+                            }
                         }
                     }
                 }
+                override fun onCancelled(error: DatabaseError) {}
             }
-            override fun onCancelled(error: DatabaseError) {}
+            db.child(path).addValueEventListener(activeListener!!)
         }
-        db.child(path).addValueEventListener(listener)
-        onDispose { db.child(path).removeEventListener(listener) }
+
+        onDispose {
+            activeListener?.let { activePath?.let { p -> db.child(p).removeEventListener(it) } }
+            todosLosMensajes.clear()
+        }
     }
 
 
