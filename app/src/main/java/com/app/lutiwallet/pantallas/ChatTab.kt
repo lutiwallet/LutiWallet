@@ -207,6 +207,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
     var mostrarMenuBloqueados by remember { mutableStateOf(false) }
     var mensajeInput by remember { mutableStateOf("") }
     var destinoInput by remember { mutableStateOf("") }
+    var inputNuevoContacto by remember { mutableStateOf("") }
     var mostrarMenuContacto by remember { mutableStateOf(false) }
     var contactoSeleccionado by remember { mutableStateOf("") }
     var mostrarDialogoAlias by remember { mutableStateOf(false) }
@@ -490,8 +491,8 @@ fun PantallaPrincipalChat(direccionPropia: String) {
 
             if (destinoInput.isBlank()) {
                 OutlinedTextField(
-                    value = destinoInput,
-                    onValueChange = { destinoInput = it },
+                    value = inputNuevoContacto,
+                    onValueChange = { inputNuevoContacto = it },
                     label = { Text("Enviar a (Dirección Solana)", color = Color.Gray) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     shape = RoundedCornerShape(16.dp),
@@ -501,9 +502,13 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                         unfocusedTextColor = Color.White
                     ),
                     trailingIcon = {
-                        val yaTieneAlias = contactosMap.containsKey(destinoInput)
-                        if (destinoInput.length > 10 && !destinoInput.startsWith("GLOBAL_") && !yaTieneAlias) {
-                            IconButton(onClick = { contactoSeleccionado = destinoInput; mostrarDialogoAlias = true }) {
+                        val yaTieneAlias = contactosMap.containsKey(inputNuevoContacto)
+                        if (inputNuevoContacto.length > 10 && !inputNuevoContacto.startsWith("GLOBAL_") && !yaTieneAlias) {
+                            IconButton(onClick = {
+                                contactoSeleccionado = inputNuevoContacto
+                                destinoInput = inputNuevoContacto
+                                mostrarDialogoAlias = true
+                            }) {
                                 Icon(Icons.Default.Check, null, tint = Color.Cyan)
                             }
                         } else if (yaTieneAlias) {
@@ -697,6 +702,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                     mostrarDialogoAlias = false
                     contactoSeleccionado = ""
                     aliasInput = ""
+                    inputNuevoContacto = ""
                 }) { Text("Guardar", color = Color.Cyan) }
             }
         )
