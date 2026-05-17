@@ -261,8 +261,8 @@ fun PantallaPrincipalChat(direccionPropia: String) {
         }
     }
 
-    LaunchedEffect(direccionPropia) {
-        db.child("privados").addValueEventListener(object : ValueEventListener {
+    DisposableEffect(direccionPropia) {
+        val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 snapshot.children.forEach { child ->
                     val m = child.getValue(Mensaje::class.java)
@@ -285,7 +285,9 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                 }
             }
             override fun onCancelled(error: DatabaseError) {}
-        })
+        }
+        db.child("privados").addValueEventListener(listener)
+        onDispose { db.child("privados").removeEventListener(listener) }
     }
 
     LaunchedEffect(Unit) {
@@ -316,27 +318,29 @@ fun PantallaPrincipalChat(direccionPropia: String) {
             })
     }
 
-    LaunchedEffect(destinoInput, direccionPropia) {
-        if (destinoInput.isNotEmpty()) {
-            mensajesSinLeer.remove(destinoInput)
-            sharedPrefs.edit().putLong("ultimo_visto_$destinoInput", System.currentTimeMillis()).apply()
+    DisposableEffect(destinoInput, direccionPropia) {
+        if (destinoInput.isEmpty()) return@DisposableEffect onDispose {}
 
-            val path = if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados"
-            db.child(path).addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    todosLosMensajes.clear()
-                    snapshot.children.forEach { child ->
-                        val m = child.getValue(Mensaje::class.java)
-                        if (m != null) {
-                            if (path.startsWith("GLOBAL_") || m.receptor == direccionPropia || m.emisor == direccionPropia) {
-                                todosLosMensajes.add(m)
-                            }
+        mensajesSinLeer.remove(destinoInput)
+        sharedPrefs.edit().putLong("ultimo_visto_$destinoInput", System.currentTimeMillis()).apply()
+
+        val path = if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados"
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                todosLosMensajes.clear()
+                snapshot.children.forEach { child ->
+                    val m = child.getValue(Mensaje::class.java)
+                    if (m != null) {
+                        if (path.startsWith("GLOBAL_") || m.receptor == direccionPropia || m.emisor == direccionPropia) {
+                            todosLosMensajes.add(m)
                         }
                     }
                 }
-                override fun onCancelled(error: DatabaseError) {}
-            })
+            }
+            override fun onCancelled(error: DatabaseError) {}
         }
+        db.child(path).addValueEventListener(listener)
+        onDispose { db.child(path).removeEventListener(listener) }
     }
 
 
