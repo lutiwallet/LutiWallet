@@ -166,12 +166,14 @@ fun WalletApp(viewModel: WalletViewModel) {
                     walletActualIdx = idx
                     fraseRecienGenerada = frase
                     mostrandoRegistro = false
-                    creandoPass = passGuardada.isEmpty()
+                    val tienePass = (prefsSeguras.getString("app_password", "") ?: "").isNotEmpty()
+                    creandoPass = !isAuthenticated && !tienePass
                 },
                 onWalletImportada = { idx ->
                     walletActualIdx = idx
                     mostrandoRegistro = false
-                    creandoPass = passGuardada.isEmpty()
+                    val tienePass = (prefsSeguras.getString("app_password", "") ?: "").isNotEmpty()
+                    creandoPass = !isAuthenticated && !tienePass
                 }
             )
         }

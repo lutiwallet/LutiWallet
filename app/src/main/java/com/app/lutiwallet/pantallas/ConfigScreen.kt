@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.lutiwallet.LutiCryptoManager
 import com.app.lutiwallet.utils.TEXTOS_IDIOMAS
-import com.app.lutiwallet.utils.hashPassword
+import com.app.lutiwallet.utils.verificarPassword
 import com.app.lutiwallet.utils.obtenerPrefsSeguras
 
 @Composable
@@ -102,7 +102,7 @@ fun ConfigScreen(
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            if (hashPassword(passConfirmacion) == passGuardada) {
+                            if (verificarPassword(passConfirmacion, passGuardada, prefsSeguras)) {
                                 mostrarFraseSegura = true
                             } else {
                                 Toast.makeText(context, "Contraseña Incorrecta", Toast.LENGTH_SHORT).show()
