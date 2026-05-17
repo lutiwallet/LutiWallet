@@ -1,7 +1,8 @@
-package com.app.lutiwallet
+package com.app.lutiwallet.pantallas
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -35,9 +36,20 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.messaging.FirebaseMessaging
 import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import java.security.MessageDigest
+import java.security.SecureRandom
 import androidx.annotation.Keep
-import com.google.firebase.database.PropertyName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+private const val FCM_SECRET = "8fa9WW294jcueu1kkl4GG"
+private const val FCM_ENDPOINT = "https://lutiwallet.com/fcm_send.php"
 
 @Keep
 data class Mensaje(
@@ -49,25 +61,71 @@ data class Mensaje(
 
 
 
-fun procesarCripto(texto: String, llave: String, modo: Int): String {
+private fun derivarClave(addr1: String, addr2: String): SecretKeySpec {
+    val entrada = if (addr1 <= addr2) "$addr1:$addr2" else "$addr2:$addr1"
+    val bytes = MessageDigest.getInstance("SHA-256").digest(entrada.toByteArray(Charsets.UTF_8))
+    return SecretKeySpec(bytes, "AES")
+}
+
+fun cifrar(texto: String, miDireccion: String, suDireccion: String): String {
     return try {
-        val keySpec = SecretKeySpec(llave.take(16).toByteArray(), "AES")
-        val cipher = Cipher.getInstance("AES")
-        cipher.init(modo, keySpec)
-        if (modo == Cipher.ENCRYPT_MODE) {
-            val bytes = cipher.doFinal(texto.toByteArray())
-            Base64.encodeToString(bytes, Base64.DEFAULT)
-        } else {
-            val decoded = Base64.decode(texto, Base64.DEFAULT)
-            String(cipher.doFinal(decoded))
-        }
+        val clave = derivarClave(miDireccion, suDireccion)
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, clave, GCMParameterSpec(128, iv))
+        val encrypted = cipher.doFinal(texto.toByteArray(Charsets.UTF_8))
+        Base64.encodeToString(iv + encrypted, Base64.DEFAULT)
     } catch (e: Exception) {
-        if (modo == Cipher.DECRYPT_MODE) "[Mensaje Cifrado]" else "Error"
+        "Error"
+    }
+}
+
+fun descifrar(ciphertext: String, emisor: String, receptor: String): String {
+    return try {
+        val clave = derivarClave(emisor, receptor)
+        val decoded = Base64.decode(ciphertext, Base64.DEFAULT)
+        if (decoded.size < 13) return "[Mensaje anterior]"
+        val iv = decoded.copyOfRange(0, 12)
+        val data = decoded.copyOfRange(12, decoded.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, clave, GCMParameterSpec(128, iv))
+        String(cipher.doFinal(data), Charsets.UTF_8)
+    } catch (e: Exception) {
+        "[Mensaje anterior]"
     }
 }
 
 private fun enviarNotificacionFCM(destino: String, mensaje: String, emisor: String) {
-    android.util.Log.d("LutiChat", "Notificando a $destino")
+    FirebaseDatabase
+        .getInstance("https://lutiwallet-default-rtdb.firebaseio.com/")
+        .getReference("tokens")
+        .child(destino)
+        .get()
+        .addOnSuccessListener { snapshot ->
+            val fcmToken = snapshot.getValue(String::class.java) ?: run {
+                Log.w("LutiChat", "Sin token FCM para $destino")
+                return@addOnSuccessListener
+            }
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val body = FormBody.Builder()
+                        .add("secret", FCM_SECRET)
+                        .add("fcm_token", fcmToken)
+                        .add("title", "LutiChat: ${emisor.take(4)}...${emisor.takeLast(4)}")
+                        .add("body", mensaje)
+                        .add("sender_address", emisor)
+                        .add("receiver_address", destino)
+                        .build()
+                    val response = OkHttpClient().newCall(
+                        Request.Builder().url(FCM_ENDPOINT).post(body).build()
+                    ).execute()
+                    val respBody = response.body?.string() ?: "(sin cuerpo)"
+                    Log.d("LutiChat", "FCM response [${response.code}]: $respBody")
+                } catch (e: Exception) {
+                    Log.e("LutiChat", "Error FCM: ${e.message}")
+                }
+            }
+        }
 }
 
 
@@ -155,7 +213,31 @@ fun PantallaPrincipalChat(direccionPropia: String) {
     var aliasInput by remember { mutableStateOf("") }
 
     val todosLosMensajes = remember { mutableStateListOf<Mensaje>() }
-    val contactosMap = remember { mutableStateMapOf<String, String>() }
+    val contactosMap = remember(direccionPropia) {
+        mutableStateMapOf<String, String>().also { map ->
+            sharedPrefs.all.filterKeys { it.startsWith("alias_") }.forEach { (k, v) ->
+                map[k.removePrefix("alias_")] = v.toString()
+            }
+        }
+    }
+
+    val dbContactos = remember(direccionPropia) {
+        FirebaseDatabase
+            .getInstance("https://lutiwallet-default-rtdb.firebaseio.com/")
+            .getReference("contacts")
+            .child(direccionPropia)
+    }
+
+    LaunchedEffect(direccionPropia) {
+        dbContactos.get().addOnSuccessListener { snapshot ->
+            snapshot.children.forEach { child ->
+                val addr = child.key ?: return@forEach
+                val alias = child.getValue(String::class.java) ?: addr.take(6)
+                contactosMap[addr] = alias
+                sharedPrefs.edit().putString("alias_$addr", alias).apply()
+            }
+        }
+    }
     val solicitudesPendientes = remember { mutableStateListOf<String>() }
     val mensajesSinLeer = remember { mutableStateListOf<String>() }
 
@@ -168,20 +250,17 @@ fun PantallaPrincipalChat(direccionPropia: String) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 val token = task.result
-                FirebaseDatabase.getInstance().getReference("tokens")
+                FirebaseDatabase
+                    .getInstance("https://lutiwallet-default-rtdb.firebaseio.com/")
+                    .getReference("tokens")
                     .child(direccionPropia)
                     .setValue(token)
+                Log.d("LutiChat", "FCM token registrado para $direccionPropia")
+            } else {
+                Log.e("LutiChat", "Fallo al obtener FCM token: ${task.exception?.message}")
             }
         }
     }
-
-    LaunchedEffect(direccionPropia) {
-        contactosMap.clear()
-        sharedPrefs.all.filterKeys { it.startsWith("alias_") }.forEach { (k, v) ->
-            contactosMap[k.removePrefix("alias_")] = v.toString()
-        }
-    }
-
 
     LaunchedEffect(direccionPropia) {
         db.child("privados").addValueEventListener(object : ValueEventListener {
@@ -208,6 +287,34 @@ fun PantallaPrincipalChat(direccionPropia: String) {
             }
             override fun onCancelled(error: DatabaseError) {}
         })
+    }
+
+    LaunchedEffect(Unit) {
+        val tiempoCorte = System.currentTimeMillis() - (48 * 60 * 60 * 1000)
+
+        db.child("privados").orderByChild("timestamp").endAt(tiempoCorte.toDouble())
+            .addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    snapshot.children.forEach { it.ref.removeValue() }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+
+        db.child("GLOBAL_ES").orderByChild("timestamp").endAt(tiempoCorte.toDouble())
+            .addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    snapshot.children.forEach { it.ref.removeValue() }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+
+        db.child("GLOBAL_EN").orderByChild("timestamp").endAt(tiempoCorte.toDouble())
+            .addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    snapshot.children.forEach { it.ref.removeValue() }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
     }
 
     LaunchedEffect(destinoInput, direccionPropia) {
@@ -259,6 +366,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                 }
             )
         },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = Color(0xFF18181F)
     ) { padding ->
         Column(
@@ -266,6 +374,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                 .fillMaxSize()
                 .background(Color(0xFF18181F))
                 .padding(padding)
+                .imePadding()
                 .padding(horizontal = 16.dp)
         ) {
             Text(
@@ -291,7 +400,6 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                             Spacer(Modifier.width(12.dp))
                             Text(remitente.take(12) + "...", color = Color.White, modifier = Modifier.weight(1f))
 
-
                             IconButton(onClick = { solicitudesPendientes.remove(remitente) }) {
                                 Icon(Icons.Default.Close, null, tint = Color.Red.copy(0.7f))
                             }
@@ -308,6 +416,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                                 val alias = remitente.take(6)
                                 contactosMap[remitente] = alias
                                 sharedPrefs.edit().putString("alias_$remitente", alias).apply()
+                                dbContactos.child(remitente).setValue(alias)
                             }) {
                                 Icon(Icons.Default.Check, null, tint = Color.Cyan)
                             }
@@ -367,65 +476,101 @@ fun PantallaPrincipalChat(direccionPropia: String) {
             }
 
 
-            OutlinedTextField(
-                value = if(destinoInput.startsWith("GLOBAL_")) "" else destinoInput,
-                onValueChange = { destinoInput = it },
-                label = { Text("Enviar a (Dirección Solana)", color = Color.Gray) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Cyan, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                trailingIcon = {
-                    val yaTieneAlias = contactosMap.containsKey(destinoInput)
-                    if (destinoInput.length > 10 && !destinoInput.startsWith("GLOBAL_") && !yaTieneAlias) {
-                        IconButton(onClick = { contactoSeleccionado = destinoInput; mostrarDialogoAlias = true }) {
-                            Icon(Icons.Default.Check, null, tint = Color.Cyan)
+            if (destinoInput.isBlank()) {
+                OutlinedTextField(
+                    value = destinoInput,
+                    onValueChange = { destinoInput = it },
+                    label = { Text("Enviar a (Dirección Solana)", color = Color.Gray) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Cyan,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    trailingIcon = {
+                        val yaTieneAlias = contactosMap.containsKey(destinoInput)
+                        if (destinoInput.length > 10 && !destinoInput.startsWith("GLOBAL_") && !yaTieneAlias) {
+                            IconButton(onClick = { contactoSeleccionado = destinoInput; mostrarDialogoAlias = true }) {
+                                Icon(Icons.Default.Check, null, tint = Color.Cyan)
+                            }
+                        } else if (yaTieneAlias) {
+                            Icon(Icons.Default.Person, null, tint = Color.Cyan.copy(0.5f), modifier = Modifier.size(20.dp))
                         }
-                    } else if (yaTieneAlias) {
-                        Icon(Icons.Default.Person, null, tint = Color.Cyan.copy(0.5f), modifier = Modifier.size(20.dp))
                     }
-                }
-            )
+                )
+            }
 
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 8.dp),
+                reverseLayout = true
+            ) {
                 if (destinoInput.isNotBlank()) {
-                    val chatFiltrado = todosLosMensajes.sortedBy { it.timestamp }.filter {
+                    val chatFiltrado = todosLosMensajes.sortedByDescending { it.timestamp }.filter {
                         if(destinoInput.startsWith("GLOBAL_")) it.receptor == destinoInput
                         else (it.receptor == destinoInput && it.emisor == direccionPropia) ||
                                 (it.receptor == direccionPropia && it.emisor == destinoInput)
                     }
-                    items(chatFiltrado) { msg ->
-                        val esMio = msg.emisor == direccionPropia
-                        val textoFinal = when {
-                            msg.receptor.startsWith("GLOBAL_") -> msg.textoCifrado
-                            esMio -> procesarCripto(msg.textoCifrado, msg.receptor, Cipher.DECRYPT_MODE)
-                            else -> procesarCripto(msg.textoCifrado, direccionPropia, Cipher.DECRYPT_MODE)
+                    if (chatFiltrado.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Aún no hay mensajes.\nEscribí algo para empezar 👋",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
                         }
-                        ChatBubble(msg, esMio, textoFinal)
+                    } else {
+                        items(chatFiltrado) { msg ->
+                            val esMio = msg.emisor == direccionPropia
+                            val textoFinal = when {
+                                msg.receptor.startsWith("GLOBAL_") -> msg.textoCifrado
+                                else -> descifrar(msg.textoCifrado, msg.emisor, msg.receptor)
+                            }
+                            ChatBubble(msg, esMio, textoFinal)
+                        }
                     }
                 }
             }
 
-
             if (destinoInput.isNotBlank()) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     OutlinedTextField(
                         value = mensajeInput,
                         onValueChange = { mensajeInput = it },
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Escribe un mensaje...", color = Color.Gray) },
                         shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Cyan, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Cyan,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
                     Spacer(Modifier.width(8.dp))
                     IconButton(
                         onClick = {
                             if (mensajeInput.isNotBlank()) {
-                                val mensajeParaNotificar = mensajeInput
-                                val contenido = if(destinoInput.startsWith("GLOBAL_")) mensajeInput
-                                else procesarCripto(mensajeInput, destinoInput, Cipher.ENCRYPT_MODE)
+                                val mensajeParaNotificar = "Nuevo mensaje privado"
+                                val contenido = if (destinoInput.startsWith("GLOBAL_")) mensajeInput
+                                else cifrar(mensajeInput, direccionPropia, destinoInput)
 
-                                db.child(if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados")
-                                    .push().setValue(Mensaje(contenido, direccionPropia, destinoInput))
+                                db.child(
+                                    if (destinoInput.startsWith("GLOBAL_")) destinoInput else "privados"
+                                ).push().setValue(Mensaje(contenido, direccionPropia, destinoInput))
 
                                 if (!destinoInput.startsWith("GLOBAL_")) {
                                     enviarNotificacionFCM(destinoInput, mensajeParaNotificar, direccionPropia)
@@ -433,8 +578,12 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                                 mensajeInput = ""
                             }
                         },
-                        modifier = Modifier.size(48.dp).background(Color.Cyan, RoundedCornerShape(14.dp))
-                    ) { Icon(Icons.Rounded.Send, null, tint = Color.Black) }
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(Color.Cyan, RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(Icons.Rounded.Send, contentDescription = "Enviar", tint = Color.Black)
+                    }
                 }
             }
         }
@@ -479,6 +628,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                         onClick = {
                             contactosMap.remove(contactoSeleccionado)
                             sharedPrefs.edit().remove("alias_$contactoSeleccionado").apply()
+                            dbContactos.child(contactoSeleccionado).removeValue()
                             if (destinoInput == contactoSeleccionado) destinoInput = ""
                             mostrarMenuContacto = false
                         },
@@ -494,6 +644,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                             sharedPrefs.edit().putBoolean("rechazado_$contactoSeleccionado", true).apply()
                             contactosMap.remove(contactoSeleccionado)
                             sharedPrefs.edit().remove("alias_$contactoSeleccionado").apply()
+                            dbContactos.child(contactoSeleccionado).removeValue()
                             if (destinoInput == contactoSeleccionado) destinoInput = ""
                             mostrarMenuContacto = false
                         },
@@ -530,6 +681,7 @@ fun PantallaPrincipalChat(direccionPropia: String) {
                     val n = aliasInput.ifBlank { target.take(6) }
                     contactosMap[target] = n
                     sharedPrefs.edit().putString("alias_$target", n).apply()
+                    dbContactos.child(target).setValue(n)
                     mostrarDialogoAlias = false
                     contactoSeleccionado = ""
                     aliasInput = ""

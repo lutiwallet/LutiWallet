@@ -17,14 +17,16 @@ import okhttp3.*
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 
 object UpdateManager {
 
     private const val JSON_URL = "https://lutiwallet.com/update.json"
     private val client = OkHttpClient()
 
-    fun checkForUpdates(context: Context, onUpdateAvailable: (String) -> Unit) {
+    private var expectedSha256: String = ""
 
+    fun checkForUpdates(context: Context, onUpdateAvailable: (String) -> Unit) {
         val request = Request.Builder()
             .url(JSON_URL)
             .addHeader("Cache-Control", "no-cache")
@@ -39,34 +41,24 @@ object UpdateManager {
                 response.body?.string()?.let { jsonString ->
                     try {
                         val json = JSONObject(jsonString)
-
                         val latestVersion = json.getInt("versionCode")
                         val apkUrl = json.getString("apkUrl")
+                        expectedSha256 = json.optString("apkSha256", "").lowercase()
 
                         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-
-                        var currentVersion: Long = 0
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            currentVersion = packageInfo.longVersionCode
+                        val currentVersion: Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            packageInfo.longVersionCode
                         } else {
                             @Suppress("DEPRECATION")
-                            currentVersion = packageInfo.versionCode.toLong()
+                            packageInfo.versionCode.toLong()
                         }
 
-
-                        Log.d("LutiUpdate", "Versión en Servidor (JSON): $latestVersion")
-                        Log.d("LutiUpdate", "Versión en App (Local): $currentVersion")
-
-
                         if (latestVersion.toLong() > currentVersion) {
-                            Log.d("LutiUpdate", "¡Nueva versión disponible!")
+                            Log.d("LutiUpdate", "Nueva versión disponible")
                             Handler(Looper.getMainLooper()).post {
                                 onUpdateAvailable(apkUrl)
                             }
-                        } else {
-                            Log.d("LutiUpdate", "La aplicación ya está actualizada.")
                         }
-
                     } catch (e: Exception) {
                         Log.e("LutiUpdate", "Error al procesar la actualización: ${e.message}")
                     }
@@ -94,6 +86,19 @@ object UpdateManager {
             override fun onReceive(receiverContext: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
                 if (id == downloadId) {
+                    if (expectedSha256.isNotEmpty()) {
+                        val actualHash = calcularSha256(destination)
+                        if (actualHash != expectedSha256) {
+                            Log.e("LutiUpdate", "Verificación de integridad FALLIDA. APK descartada. esperado=$expectedSha256 real=$actualHash")
+                            destination.delete()
+                            try { appContext.unregisterReceiver(this) } catch (e: Exception) { }
+                            return
+                        }
+                        Log.d("LutiUpdate", "Hash SHA-256 verificado correctamente")
+                    } else {
+                        Log.w("LutiUpdate", "No se encontró apkSha256 en update.json — instalando sin verificar integridad")
+                    }
+
                     installApk(appContext, destination)
                     try {
                         appContext.unregisterReceiver(this)
@@ -104,13 +109,24 @@ object UpdateManager {
             }
         }
 
-
         ContextCompat.registerReceiver(
             appContext,
             onComplete,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED
         )
+    }
+
+    private fun calcularSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { stream ->
+            val buffer = ByteArray(8192)
+            var read: Int
+            while (stream.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun installApk(context: Context, file: File) {

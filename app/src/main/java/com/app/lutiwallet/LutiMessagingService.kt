@@ -12,6 +12,14 @@ import com.google.firebase.messaging.RemoteMessage
 
 class LutiMessagingService : FirebaseMessagingService() {
 
+    override fun onNewToken(token: String) {
+        super.onNewToken(token)
+        getSharedPreferences("LutiWalletPrefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("fcm_token_local", token)
+            .apply()
+    }
+
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
 
         val direccionEmisor = remoteMessage.data["sender_address"] ?: ""
