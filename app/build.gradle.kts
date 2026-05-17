@@ -13,8 +13,8 @@ android {
         applicationId = "com.app.lutiwallet"
         minSdk = 24
         targetSdk = 35 // Android 15
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 20
+        versionName = "2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -65,6 +65,10 @@ dependencies {
     implementation ("org.slf4j:slf4j-android:1.7.36")
     implementation("com.google.firebase:firebase-auth-ktx")
 
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+
 
     implementation("org.bitcoinj:bitcoinj-core:0.16.2") {
         exclude(group = "org.bouncycastle")
@@ -84,6 +88,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("com.google.android.material:material:1.11.0")
@@ -91,6 +96,11 @@ dependencies {
 
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
 
 
     val camerax_version = "1.3.1"

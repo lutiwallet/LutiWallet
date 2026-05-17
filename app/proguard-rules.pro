@@ -13,7 +13,7 @@
 
 
 -keep class com.app.lutiwallet.UpdateManager { *; }
--keep class com.app.lutiwallet.Mensaje { *; }
+-keep class com.app.lutiwallet.pantallas.Mensaje { *; }
 
 -keep class androidx.core.content.FileProvider { *; }
 
