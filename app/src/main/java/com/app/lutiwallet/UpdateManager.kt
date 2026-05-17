@@ -76,7 +76,7 @@ object UpdateManager {
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("Actualizando LutiWallet")
             .setDescription("Descargando la última versión...")
-            .setDestinationUri(Uri.fromFile(destination))
+            .setDestinationInExternalFilesDir(appContext, Environment.DIRECTORY_DOWNLOADS, "lutiwallet_update.apk")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
 
         val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -85,26 +85,35 @@ object UpdateManager {
         val onComplete = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-                if (id == downloadId) {
-                    if (expectedSha256.isNotEmpty()) {
-                        val actualHash = calcularSha256(destination)
-                        if (actualHash != expectedSha256) {
-                            Log.e("LutiUpdate", "Verificación de integridad FALLIDA. APK descartada. esperado=$expectedSha256 real=$actualHash")
-                            destination.delete()
-                            try { appContext.unregisterReceiver(this) } catch (e: Exception) { }
-                            return
-                        }
-                        Log.d("LutiUpdate", "Hash SHA-256 verificado correctamente")
-                    } else {
-                        Log.w("LutiUpdate", "No se encontró apkSha256 en update.json — instalando sin verificar integridad")
-                    }
+                if (id != downloadId) return
 
-                    installApk(appContext, destination)
-                    try {
-                        appContext.unregisterReceiver(this)
-                    } catch (e: Exception) {
-                        Log.e("LutiUpdate", "Error desregistrando: ${e.message}")
+                val query = DownloadManager.Query().setFilterById(downloadId)
+                val cursor = manager.query(query)
+                val exitoso = cursor.use { c ->
+                    c.moveToFirst() && c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
+                }
+
+                if (!exitoso) {
+                    destination.delete()
+                    try { appContext.unregisterReceiver(this) } catch (e: Exception) { }
+                    return
+                }
+
+                if (expectedSha256.isNotEmpty()) {
+                    val actualHash = calcularSha256(destination)
+                    if (actualHash != expectedSha256) {
+                        Log.e("LutiUpdate", "Verificación de integridad FALLIDA. APK descartada.")
+                        destination.delete()
+                        try { appContext.unregisterReceiver(this) } catch (e: Exception) { }
+                        return
                     }
+                }
+
+                installApk(appContext, destination)
+                try {
+                    appContext.unregisterReceiver(this)
+                } catch (e: Exception) {
+                    Log.e("LutiUpdate", "Error desregistrando: ${e.message}")
                 }
             }
         }
