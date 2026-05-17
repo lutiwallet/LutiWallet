@@ -41,7 +41,6 @@ import com.app.lutiwallet.pantallas.RegistroScreen
 import com.app.lutiwallet.utils.TEXTOS_IDIOMAS
 import com.app.lutiwallet.utils.obtenerPrefsSeguras
 import com.app.lutiwallet.viewmodel.WalletViewModel
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.messaging.FirebaseMessaging
 import android.view.WindowManager
@@ -61,11 +60,6 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        val auth = FirebaseAuth.getInstance()
-        if (auth.currentUser == null) {
-            auth.signInAnonymously()
-        }
 
         val permisos = mutableListOf(android.Manifest.permission.CAMERA).apply {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
